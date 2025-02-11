@@ -118,7 +118,7 @@ def ls():
 
             modified = datetime.fromisoformat(modified).strftime("%Y-%m-%d %H:%M:%S")
 
-            table.add_row(filename, str(size), modified, owner)
+            table.add_row(filename, lib.natural_size(size), modified, owner)
 
         print(table)
     except lib.NotLoggedInError:
