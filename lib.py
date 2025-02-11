@@ -1,11 +1,21 @@
 from typing import Optional
-import requests
-import os
 
-API_BASE_URL = os.environ.get(
-    "MY_DROPBOX_API",
-    "https://bry9itqmyb.execute-api.ap-southeast-1.amazonaws.com/stage",
-)
+import requests
+
+from constants import API_BASE_URL, SESSION_FILE_PATH
+
+
+class NotLoggedInError(Exception):
+    pass
+
+
+def retrieve_token():
+    try:
+        with open(SESSION_FILE_PATH) as f:
+            token = f.read()
+        return token
+    except FileNotFoundError:
+        raise NotLoggedInError()
 
 
 def register(username: str, password: str):

@@ -1,18 +1,18 @@
+import os
 from base64 import b64encode
 from datetime import datetime
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-import lib
+
 import typer
-from typing_extensions import Annotated
 from rich import print
 from rich.table import Table
+from typing_extensions import Annotated
+
+import lib
+from constants import SESSION_FILE_PATH
 
 app = typer.Typer()
-
-
-session_file = Path("~/.mydropbox-session").expanduser().resolve()
 
 
 @app.command()
@@ -35,12 +35,12 @@ def login(
     password: Annotated[str, typer.Option(prompt=True, hide_input=True)],
 ):
     try:
-        if os.path.exists(session_file):
+        if os.path.exists(SESSION_FILE_PATH):
             print("[red]Error[/red]: Already logged in.")
             return
         token = lib.login(username, password)
 
-        with open(session_file, "w") as f:
+        with open(SESSION_FILE_PATH, "w") as f:
             f.write(token)
     except:
         print("[red]Error[/red]: Failed to login.")
@@ -50,10 +50,12 @@ def login(
 @app.command()
 def logout():
     try:
-        with open(session_file) as f:
-            token = f.read()
+        token = lib.retrieve_token()
+
         lib.logout(token)
-        os.remove(session_file)
+        os.remove(SESSION_FILE_PATH)
+    except lib.NotLoggedInError:
+        print("[red]Error[/red]: Not logged in.")
     except:
         print("[red]Error[/red]: Failed to logout.")
         exit(1)
@@ -71,10 +73,11 @@ def add(
     ]
 ):
     try:
-        with open(session_file) as f:
-            token = f.read()
+        token = lib.retrieve_token()
 
         lib.put_file(token, file.name, b64encode(file.read_bytes()).decode())
+    except lib.NotLoggedInError:
+        print("[red]Error[/red]: Not logged in.")
     except:
         print("[red]Error[/red]: Failed to add file.")
         exit(1)
@@ -86,11 +89,13 @@ def get(
     user: Optional[str] = None,
 ):
     try:
-        with open(session_file) as f:
-            token = f.read()
+        token = lib.retrieve_token()
+
         content = lib.get_file(token, file, user)
         with open(file, "wb") as f:
             f.write(content)
+    except lib.NotLoggedInError:
+        print("[red]Error[/red]: Not logged in.")
     except Exception:
         print("[red]Error[/red]: Failed to get file.")
         exit(1)
@@ -99,8 +104,7 @@ def get(
 @app.command()
 def ls():
     try:
-        with open(session_file) as f:
-            token = f.read()
+        token = lib.retrieve_token()
 
         files: List[Dict[str, Any]] = lib.list_files(token)
 
@@ -117,6 +121,8 @@ def ls():
             table.add_row(filename, str(size), modified, owner)
 
         print(table)
+    except lib.NotLoggedInError:
+        print("[red]Error[/red]: Not logged in.")
     except Exception:
         print("[red]Error[/red]: Failed to list files.")
         exit(1)
@@ -128,10 +134,11 @@ def share(
     username: Annotated[str, typer.Argument()],
 ):
     try:
-        with open(session_file) as f:
-            token = f.read()
+        token = lib.retrieve_token()
 
         lib.share_file(token, file, username)
+    except lib.NotLoggedInError:
+        print("[red]Error[/red]: Not logged in.")
     except:
         print("[red]Error[/red]: Failed to share file.")
         exit(1)
