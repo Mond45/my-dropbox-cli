@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import typer
+from requests import HTTPError
 from rich import print
 from rich.table import Table
 from typing_extensions import Annotated
@@ -24,8 +25,8 @@ def register(
 ):
     try:
         lib.register(username, password)
-    except:
-        print("[red]Error[/red]: Failed to register user.")
+    except HTTPError as e:
+        print(f"[red]Error[/red]: {e.response.json()['message']}")
         exit(1)
 
 
@@ -37,13 +38,13 @@ def login(
     try:
         if os.path.exists(SESSION_FILE_PATH):
             print("[red]Error[/red]: Already logged in.")
-            return
+            exit(1)
         token = lib.login(username, password)
 
         with open(SESSION_FILE_PATH, "w") as f:
             f.write(token)
-    except:
-        print("[red]Error[/red]: Failed to login.")
+    except HTTPError as e:
+        print(f"[red]Error[/red]: {e.response.json()['message']}")
         exit(1)
 
 
@@ -56,8 +57,8 @@ def logout():
         os.remove(SESSION_FILE_PATH)
     except lib.NotLoggedInError:
         print("[red]Error[/red]: Not logged in.")
-    except:
-        print("[red]Error[/red]: Failed to logout.")
+    except HTTPError as e:
+        print(f"[red]Error[/red]: {e.response.json()['message']}")
         exit(1)
 
 
@@ -78,8 +79,8 @@ def add(
         lib.put_file(token, file.name, b64encode(file.read_bytes()).decode())
     except lib.NotLoggedInError:
         print("[red]Error[/red]: Not logged in.")
-    except:
-        print("[red]Error[/red]: Failed to add file.")
+    except HTTPError as e:
+        print(f"[red]Error[/red]: {e.response.json()['message']}")
         exit(1)
 
 
@@ -96,8 +97,8 @@ def get(
             f.write(content)
     except lib.NotLoggedInError:
         print("[red]Error[/red]: Not logged in.")
-    except Exception:
-        print("[red]Error[/red]: Failed to get file.")
+    except HTTPError as e:
+        print(f"[red]Error[/red]: {e.response.json()['message']}")
         exit(1)
 
 
@@ -123,8 +124,8 @@ def ls():
         print(table)
     except lib.NotLoggedInError:
         print("[red]Error[/red]: Not logged in.")
-    except Exception:
-        print("[red]Error[/red]: Failed to list files.")
+    except HTTPError as e:
+        print(f"[red]Error[/red]: {e.response.json()['message']}")
         exit(1)
 
 
@@ -139,8 +140,8 @@ def share(
         lib.share_file(token, file, username)
     except lib.NotLoggedInError:
         print("[red]Error[/red]: Not logged in.")
-    except:
-        print("[red]Error[/red]: Failed to share file.")
+    except HTTPError as e:
+        print(f"[red]Error[/red]: {e.response.json()['message']}")
         exit(1)
 
 
