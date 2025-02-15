@@ -74,18 +74,12 @@ def view():
         r.raise_for_status()
         files = r.json()
 
-        table = Table("Name", "Size", "Date Modified", "Owner")
+        table = Table("Filename", "Size", "Date Modified")
         for file in files:
             key, size, modified = file["key"], file["size"], file["modified"]
-
-            delim_index = key.find("/")
-            owner = key[:delim_index]
-            filename = key[delim_index + 1 :]
-
             modified = datetime.fromisoformat(modified).strftime("%Y-%m-%d %H:%M:%S")
 
-            table.add_row(filename, natural_size(size), modified, owner)
-
+            table.add_row(key, natural_size(size), modified)
         print(table)
     except HTTPError as e:
         print(f"[red]Error[/red]: {e.response.json()['message']}")
