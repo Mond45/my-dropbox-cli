@@ -9,7 +9,8 @@ from rich import print
 from rich.table import Table
 from typing_extensions import Annotated
 
-API_BASE_URL = "https://b6cdy6h1yg.execute-api.ap-southeast-1.amazonaws.com/stage"
+API_BASE_URL = "<URL>"
+API_KEY = "<API-KEY>"
 
 
 def natural_size(num, suffix="B"):
@@ -37,6 +38,7 @@ def put(
     try:
         r = requests.put(
             f"{API_BASE_URL}/file",
+            headers={"x-api-key": API_KEY},
             json={
                 "file_name": file.name,
                 "content": b64encode(file.read_bytes()).decode(),
@@ -55,6 +57,7 @@ def get(
     try:
         r = requests.get(
             f"{API_BASE_URL}/file",
+            headers={"x-api-key": API_KEY},
             params={"file_name": file},
         )
         r.raise_for_status()
@@ -70,7 +73,10 @@ def get(
 @app.command()
 def view():
     try:
-        r = requests.get(f"{API_BASE_URL}/files")
+        r = requests.get(
+            f"{API_BASE_URL}/files",
+            headers={"x-api-key": API_KEY},
+        )
         r.raise_for_status()
         files = r.json()
 
