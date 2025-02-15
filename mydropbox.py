@@ -1,69 +1,30 @@
-import os
 from base64 import b64encode
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
+import requests
 import typer
 from requests import HTTPError
 from rich import print
 from rich.table import Table
 from typing_extensions import Annotated
 
-import lib
-from constants import SESSION_FILE_PATH
+API_BASE_URL = "https://b6cdy6h1yg.execute-api.ap-southeast-1.amazonaws.com/stage"
+
+
+def natural_size(num, suffix="B"):
+    for unit in ("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"):
+        if abs(num) < 1024.0:
+            return f"{num:3.1f} {unit}{suffix}"
+        num /= 1024.0
+    return f"{num:.1f} Yi{suffix}"
+
 
 app = typer.Typer()
 
 
 @app.command()
-def register(
-    username: Annotated[str, typer.Option(prompt=True)],
-    password: Annotated[
-        str, typer.Option(prompt=True, confirmation_prompt=True, hide_input=True)
-    ],
-):
-    try:
-        lib.register(username, password)
-    except HTTPError as e:
-        print(f"[red]Error[/red]: {e.response.json()['message']}")
-        exit(1)
-
-
-@app.command()
-def login(
-    username: Annotated[str, typer.Option(prompt=True)],
-    password: Annotated[str, typer.Option(prompt=True, hide_input=True)],
-):
-    try:
-        if os.path.exists(SESSION_FILE_PATH):
-            print("[red]Error[/red]: Already logged in.")
-            exit(1)
-        token = lib.login(username, password)
-
-        with open(SESSION_FILE_PATH, "w") as f:
-            f.write(token)
-    except HTTPError as e:
-        print(f"[red]Error[/red]: {e.response.json()['message']}")
-        exit(1)
-
-
-@app.command()
-def logout():
-    try:
-        token = lib.retrieve_token()
-
-        lib.logout(token)
-        os.remove(SESSION_FILE_PATH)
-    except lib.NotLoggedInError:
-        print("[red]Error[/red]: Not logged in.")
-    except HTTPError as e:
-        print(f"[red]Error[/red]: {e.response.json()['message']}")
-        exit(1)
-
-
-@app.command()
-def add(
+def put(
     file: Annotated[
         Path,
         typer.Argument(
@@ -74,11 +35,14 @@ def add(
     ]
 ):
     try:
-        token = lib.retrieve_token()
-
-        lib.put_file(token, file.name, b64encode(file.read_bytes()).decode())
-    except lib.NotLoggedInError:
-        print("[red]Error[/red]: Not logged in.")
+        r = requests.put(
+            f"{API_BASE_URL}/file",
+            json={
+                "file_name": file.name,
+                "content": b64encode(file.read_bytes()).decode(),
+            },
+        )
+        r.raise_for_status()
     except HTTPError as e:
         print(f"[red]Error[/red]: {e.response.json()['message']}")
         exit(1)
@@ -87,27 +51,28 @@ def add(
 @app.command()
 def get(
     file: Annotated[str, typer.Argument()],
-    user: Optional[str] = None,
 ):
     try:
-        token = lib.retrieve_token()
+        r = requests.get(
+            f"{API_BASE_URL}/file",
+            params={"file_name": file},
+        )
+        r.raise_for_status()
 
-        content = lib.get_file(token, file, user)
+        content = r.content
         with open(file, "wb") as f:
             f.write(content)
-    except lib.NotLoggedInError:
-        print("[red]Error[/red]: Not logged in.")
     except HTTPError as e:
         print(f"[red]Error[/red]: {e.response.json()['message']}")
         exit(1)
 
 
 @app.command()
-def ls():
+def view():
     try:
-        token = lib.retrieve_token()
-
-        files: List[Dict[str, Any]] = lib.list_files(token)
+        r = requests.get(f"{API_BASE_URL}/files")
+        r.raise_for_status()
+        files = r.json()
 
         table = Table("Name", "Size", "Date Modified", "Owner")
         for file in files:
@@ -119,27 +84,9 @@ def ls():
 
             modified = datetime.fromisoformat(modified).strftime("%Y-%m-%d %H:%M:%S")
 
-            table.add_row(filename, lib.natural_size(size), modified, owner)
+            table.add_row(filename, natural_size(size), modified, owner)
 
         print(table)
-    except lib.NotLoggedInError:
-        print("[red]Error[/red]: Not logged in.")
-    except HTTPError as e:
-        print(f"[red]Error[/red]: {e.response.json()['message']}")
-        exit(1)
-
-
-@app.command()
-def share(
-    file: Annotated[str, typer.Argument()],
-    username: Annotated[str, typer.Argument()],
-):
-    try:
-        token = lib.retrieve_token()
-
-        lib.share_file(token, file, username)
-    except lib.NotLoggedInError:
-        print("[red]Error[/red]: Not logged in.")
     except HTTPError as e:
         print(f"[red]Error[/red]: {e.response.json()['message']}")
         exit(1)
