@@ -1,113 +1,152 @@
-import os
 from base64 import b64encode
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import typer
 from requests import HTTPError
 from rich import print
 from rich.table import Table
-from typing_extensions import Annotated
 
 import lib
-from constants import SESSION_FILE_PATH
 
-app = typer.Typer()
+session_token: Optional[str] = None
 
 
-@app.command()
-def register(
-    username: Annotated[str, typer.Option(prompt=True)],
-    password: Annotated[
-        str, typer.Option(prompt=True, confirmation_prompt=True, hide_input=True)
-    ],
-):
+class NotLoggedInError(Exception): ...
+
+
+def print_error(msg: Any):
+    print(f"[red]Error[/red]: {msg}")
+
+
+def handle_http_error(e: HTTPError):
+    print_error(e.response.json()["message"])
+
+
+class Command: ...
+
+
+@dataclass
+class NewUserCommand(Command):
+    username: str
+    password: str
+    confirm_password: str
+
+
+@dataclass
+class LoginCommand(Command):
+    username: str
+    password: str
+
+
+@dataclass
+class LogoutCommand(Command): ...
+
+
+@dataclass
+class PutCommand(Command):
+    filename: str
+
+
+@dataclass
+class ViewCommand(Command): ...
+
+
+@dataclass
+class GetCommand(Command):
+    filename: str
+    username: Optional[str]
+
+
+@dataclass
+class ShareCommand(Command):
+    filename: str
+    username: str
+
+
+@dataclass
+class QuitCommand(Command): ...
+
+
+def parse_command(cmd: List[str]) -> Command:
     try:
-        lib.register(username, password)
-    except HTTPError as e:
-        print(f"[red]Error[/red]: {e.response.json()['message']}")
-        exit(1)
+        if cmd[0] == "newuser":
+            assert len(cmd) == 4
+            username, password, confirm_password = cmd[1], cmd[2], cmd[3]
+            return NewUserCommand(username, password, confirm_password)
+
+        elif cmd[0] == "login":
+            assert len(cmd) == 3
+            username, password = cmd[1], cmd[2]
+            return LoginCommand(username, password)
+
+        elif cmd[0] == "logout":
+            assert len(cmd) == 1
+            return LogoutCommand()
+
+        elif cmd[0] == "put":
+            assert len(cmd) == 2
+            filename = cmd[1]
+            return PutCommand(filename)
+
+        elif cmd[0] == "view":
+            assert len(cmd) == 1
+            return ViewCommand()
+
+        elif cmd[0] == "get":
+            assert len(cmd) == 2 or len(cmd) == 3
+            filename, username = cmd[1], None
+            if len(cmd) == 3:
+                username = cmd[2]
+            return GetCommand(filename, username)
+
+        elif cmd[0] == "share":
+            assert len(cmd) == 3
+            filename, username = cmd[1], cmd[2]
+            return ShareCommand(filename, username)
+
+        elif cmd[0] == "quit":
+            assert len(cmd) == 1
+            return QuitCommand()
+
+        else:
+            raise ValueError("Invalid command")
+
+    except AssertionError:
+        raise ValueError("Invalid arguments")
 
 
-@app.command()
-def login(
-    username: Annotated[str, typer.Option(prompt=True)],
-    password: Annotated[str, typer.Option(prompt=True, hide_input=True)],
-):
-    try:
-        if os.path.exists(SESSION_FILE_PATH):
-            print("[red]Error[/red]: Already logged in.")
-            exit(1)
-        token = lib.login(username, password)
+def execute_command(cmd: Command):
+    global session_token
 
-        with open(SESSION_FILE_PATH, "w") as f:
-            f.write(token)
-    except HTTPError as e:
-        print(f"[red]Error[/red]: {e.response.json()['message']}")
-        exit(1)
+    if isinstance(cmd, NewUserCommand):
+        if cmd.password != cmd.confirm_password:
+            raise ValueError("The passwords do not match.")
+        lib.register(cmd.username, cmd.password)
 
+    elif isinstance(cmd, LoginCommand):
+        if session_token is not None:
+            raise Exception("Already logged in.")
+        session_token = lib.login(cmd.username, cmd.password)
 
-@app.command()
-def logout():
-    try:
-        token = lib.retrieve_token()
+    elif isinstance(cmd, LogoutCommand):
+        if session_token is None:
+            raise NotLoggedInError()
+        lib.logout(session_token)
+        session_token = None
 
-        lib.logout(token)
-        os.remove(SESSION_FILE_PATH)
-    except lib.NotLoggedInError:
-        print("[red]Error[/red]: Not logged in.")
-    except HTTPError as e:
-        print(f"[red]Error[/red]: {e.response.json()['message']}")
-        exit(1)
+    elif isinstance(cmd, PutCommand):
+        if session_token is None:
+            raise NotLoggedInError()
+        file = Path(cmd.filename)
+        lib.put_file(session_token, file.name, b64encode(file.read_bytes()).decode())
 
+    elif isinstance(cmd, ViewCommand):
+        if session_token is None:
+            raise NotLoggedInError()
 
-@app.command()
-def add(
-    file: Annotated[
-        Path,
-        typer.Argument(
-            exists=True,
-            file_okay=True,
-            dir_okay=False,
-        ),
-    ]
-):
-    try:
-        token = lib.retrieve_token()
-
-        lib.put_file(token, file.name, b64encode(file.read_bytes()).decode())
-    except lib.NotLoggedInError:
-        print("[red]Error[/red]: Not logged in.")
-    except HTTPError as e:
-        print(f"[red]Error[/red]: {e.response.json()['message']}")
-        exit(1)
-
-
-@app.command()
-def get(
-    file: Annotated[str, typer.Argument()],
-    user: Optional[str] = None,
-):
-    try:
-        token = lib.retrieve_token()
-
-        content = lib.get_file(token, file, user)
-        with open(file, "wb") as f:
-            f.write(content)
-    except lib.NotLoggedInError:
-        print("[red]Error[/red]: Not logged in.")
-    except HTTPError as e:
-        print(f"[red]Error[/red]: {e.response.json()['message']}")
-        exit(1)
-
-
-@app.command()
-def ls():
-    try:
-        token = lib.retrieve_token()
-
-        files: List[Dict[str, Any]] = lib.list_files(token)
+        files: List[Dict[str, Any]] = lib.list_files(session_token)
 
         table = Table("Name", "Size", "Date Modified", "Owner")
         for file in files:
@@ -122,28 +161,56 @@ def ls():
             table.add_row(filename, lib.natural_size(size), modified, owner)
 
         print(table)
-    except lib.NotLoggedInError:
-        print("[red]Error[/red]: Not logged in.")
-    except HTTPError as e:
-        print(f"[red]Error[/red]: {e.response.json()['message']}")
-        exit(1)
+
+    elif isinstance(cmd, GetCommand):
+        if session_token is None:
+            raise NotLoggedInError()
+
+        content = lib.get_file(session_token, cmd.filename, cmd.username)
+        with open(cmd.filename, "wb") as f:
+            f.write(content)
+
+    elif isinstance(cmd, ShareCommand):
+        if session_token is None:
+            raise NotLoggedInError()
+
+        lib.share_file(session_token, cmd.filename, cmd.username)
+
+    elif isinstance(cmd, QuitCommand):
+        if session_token is not None:
+            lib.logout(session_token)
+
+        exit(0)
 
 
-@app.command()
-def share(
-    file: Annotated[str, typer.Argument()],
-    username: Annotated[str, typer.Argument()],
-):
-    try:
-        token = lib.retrieve_token()
+def main():
+    BANNER = """Welcome to myDropbox Application
+======================================================
+Please input command (newuser username password password, login
+username password, put filename, get filename, view, or logout).
+If you want to quit the program just type quit.
+======================================================"""
+    print(BANNER)
+    while True:
+        cmd = input(">>")
+        cmd = cmd.strip().split()
 
-        lib.share_file(token, file, username)
-    except lib.NotLoggedInError:
-        print("[red]Error[/red]: Not logged in.")
-    except HTTPError as e:
-        print(f"[red]Error[/red]: {e.response.json()['message']}")
-        exit(1)
+        if len(cmd) == 0:
+            continue
+
+        try:
+            cmd = parse_command(cmd)
+        except ValueError as e:
+            print_error(e.args)
+            continue
+
+        try:
+            execute_command(cmd)
+        except HTTPError as e:
+            handle_http_error(e)
+        except Exception as e:
+            print_error(e)
 
 
 if __name__ == "__main__":
-    app()
+    main()

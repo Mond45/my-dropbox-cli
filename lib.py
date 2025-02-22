@@ -2,20 +2,7 @@ from typing import Optional
 
 import requests
 
-from constants import API_BASE_URL, SESSION_FILE_PATH
-
-
-class NotLoggedInError(Exception):
-    pass
-
-
-def retrieve_token():
-    try:
-        with open(SESSION_FILE_PATH) as f:
-            token = f.read()
-        return token
-    except FileNotFoundError:
-        raise NotLoggedInError()
+from constants import API_BASE_URL
 
 
 def natural_size(num, suffix="B"):
