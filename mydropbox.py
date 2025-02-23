@@ -1,27 +1,33 @@
 from base64 import b64encode
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import requests
 from requests import HTTPError
-from rich import print
-from rich.table import Table
 
-import lib
+API_BASE_URL = "<API_URL>"
+
 
 session_token: Optional[str] = None
 
 
-class NotLoggedInError(Exception): ...
-
-
 def print_error(msg: Any):
-    print(f"[red]Error[/red]: {msg}")
+    if isinstance(msg, list) or isinstance(msg, tuple):
+        print(f"Error: {', '.join(msg)}")
+    else:
+        print(f"Error: {msg}")
 
 
-def handle_http_error(e: HTTPError):
-    print_error(e.response.json()["message"])
+def natural_size(num, suffix="B"):
+    for unit in ("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"):
+        if abs(num) < 1024.0:
+            return f"{num:3.1f} {unit}{suffix}"
+        num /= 1024.0
+    return f"{num:.1f} Yi{suffix}"
+
+
+class NotLoggedInError(Exception): ...
 
 
 class Command: ...
@@ -123,32 +129,60 @@ def execute_command(cmd: Command):
     if isinstance(cmd, NewUserCommand):
         if cmd.password != cmd.confirm_password:
             raise ValueError("The passwords do not match.")
-        lib.register(cmd.username, cmd.password)
+
+        r = requests.post(
+            f"{API_BASE_URL}/register",
+            json={"username": cmd.username, "password": cmd.password},
+        )
+        r.raise_for_status()
 
     elif isinstance(cmd, LoginCommand):
         if session_token is not None:
             raise Exception("Already logged in.")
-        session_token = lib.login(cmd.username, cmd.password)
+
+        r = requests.post(
+            f"{API_BASE_URL}/login",
+            json={"username": cmd.username, "password": cmd.password},
+        )
+        r.raise_for_status()
+        session_token = r.json()["token"]
 
     elif isinstance(cmd, LogoutCommand):
         if session_token is None:
             raise NotLoggedInError()
-        lib.logout(session_token)
+
+        r = requests.post(
+            f"{API_BASE_URL}/logout", headers={"x-session-token": session_token}
+        )
+        r.raise_for_status()
         session_token = None
 
     elif isinstance(cmd, PutCommand):
         if session_token is None:
             raise NotLoggedInError()
+
         file = Path(cmd.filename)
-        lib.put_file(session_token, file.name, b64encode(file.read_bytes()).decode())
+        r = requests.put(
+            f"{API_BASE_URL}/file",
+            headers={"x-session-token": session_token},
+            json={
+                "file_name": file.name,
+                "content": b64encode(file.read_bytes()).decode(),
+            },
+        )
+        r.raise_for_status()
 
     elif isinstance(cmd, ViewCommand):
         if session_token is None:
             raise NotLoggedInError()
 
-        files: List[Dict[str, Any]] = lib.list_files(session_token)
+        r = requests.get(
+            f"{API_BASE_URL}/files", headers={"x-session-token": session_token}
+        )
+        r.raise_for_status()
 
-        table = Table("Name", "Size", "Date Modified", "Owner")
+        files: List[Dict[str, Any]] = r.json()
+
         for file in files:
             key, size, modified = file["key"], file["size"], file["modified"]
 
@@ -156,17 +190,20 @@ def execute_command(cmd: Command):
             owner = key[:delim_index]
             filename = key[delim_index + 1 :]
 
-            modified = datetime.fromisoformat(modified).strftime("%Y-%m-%d %H:%M:%S")
-
-            table.add_row(filename, lib.natural_size(size), modified, owner)
-
-        print(table)
+            print(f"{filename}\t{natural_size(size)}\t{modified}\t{owner}")
 
     elif isinstance(cmd, GetCommand):
         if session_token is None:
             raise NotLoggedInError()
 
-        content = lib.get_file(session_token, cmd.filename, cmd.username)
+        r = requests.get(
+            f"{API_BASE_URL}/file",
+            headers={"x-session-token": session_token},
+            params={"file_name": cmd.filename, "username": cmd.username},
+        )
+        r.raise_for_status()
+
+        content = r.content
         with open(cmd.filename, "wb") as f:
             f.write(content)
 
@@ -174,11 +211,18 @@ def execute_command(cmd: Command):
         if session_token is None:
             raise NotLoggedInError()
 
-        lib.share_file(session_token, cmd.filename, cmd.username)
+        r = requests.post(
+            f"{API_BASE_URL}/share",
+            headers={"x-session-token": session_token},
+            json={"file_name": cmd.filename, "username": cmd.username},
+        )
+        r.raise_for_status()
 
     elif isinstance(cmd, QuitCommand):
         if session_token is not None:
-            lib.logout(session_token)
+            r = requests.post(
+                f"{API_BASE_URL}/logout", headers={"x-session-token": session_token}
+            )
 
         exit(0)
 
@@ -206,10 +250,12 @@ If you want to quit the program just type quit.
 
         try:
             execute_command(cmd)
+        except NotLoggedInError:
+            print_error('Not logged in')
         except HTTPError as e:
-            handle_http_error(e)
+            print_error(e.response.json()["message"])
         except Exception as e:
-            print_error(e)
+            print_error(e.args)
 
 
 if __name__ == "__main__":
