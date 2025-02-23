@@ -9,9 +9,11 @@ from requests import HTTPError
 API_BASE_URL = "<API_URL>"
 
 
+# Session token is stored in-memory
 session_token: Optional[str] = None
 
 
+# Utility function for displaying error information
 def print_error(msg: Any):
     if isinstance(msg, list) or isinstance(msg, tuple):
         print(f"Error: {', '.join(msg)}")
@@ -19,6 +21,7 @@ def print_error(msg: Any):
         print(f"Error: {msg}")
 
 
+# Natural file size for `view` command
 def natural_size(num, suffix="B"):
     for unit in ("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"):
         if abs(num) < 1024.0:
@@ -30,6 +33,7 @@ def natural_size(num, suffix="B"):
 class NotLoggedInError(Exception): ...
 
 
+# The base class for storing options for each command (newuser, login, ...)
 class Command: ...
 
 
@@ -76,6 +80,7 @@ class QuitCommand(Command): ...
 
 
 def parse_command(cmd: List[str]) -> Command:
+    # validate the number of arguments, return a Command dataclass
     try:
         if cmd[0] == "newuser":
             assert len(cmd) == 4
@@ -186,6 +191,7 @@ def execute_command(cmd: Command):
         for file in files:
             key, size, modified = file["key"], file["size"], file["modified"]
 
+            # the first path segment indicates the file owner, assuming users don't have / in their names
             delim_index = key.find("/")
             owner = key[:delim_index]
             filename = key[delim_index + 1 :]
@@ -220,6 +226,7 @@ def execute_command(cmd: Command):
 
     elif isinstance(cmd, QuitCommand):
         if session_token is not None:
+            # automatically logout upon exiting
             r = requests.post(
                 f"{API_BASE_URL}/logout", headers={"x-session-token": session_token}
             )
@@ -234,6 +241,7 @@ Please input command (newuser username password password, login
 username password, put filename, get filename, view, or logout).
 If you want to quit the program just type quit.
 ======================================================"""
+
     print(BANNER)
     while True:
         cmd = input(">>")
@@ -251,7 +259,7 @@ If you want to quit the program just type quit.
         try:
             execute_command(cmd)
         except NotLoggedInError:
-            print_error('Not logged in')
+            print_error("Not logged in")
         except HTTPError as e:
             print_error(e.response.json()["message"])
         except Exception as e:
