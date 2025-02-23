@@ -14,9 +14,9 @@ session_token: Optional[str] = None
 
 
 # Utility function for displaying error information
-def print_error(msg: Any):
+def print_error(msg):
     if isinstance(msg, list) or isinstance(msg, tuple):
-        print(f"Error: {', '.join(msg)}")
+        print(f"Error: {', '.join([ str(e) for e in msg ])}")
     else:
         print(f"Error: {msg}")
 
@@ -231,8 +231,6 @@ def execute_command(cmd: Command):
                 f"{API_BASE_URL}/logout", headers={"x-session-token": session_token}
             )
 
-        exit(0)
-
 
 def main():
     BANNER = """Welcome to myDropbox Application
@@ -258,12 +256,20 @@ If you want to quit the program just type quit.
 
         try:
             execute_command(cmd)
+            if isinstance(cmd, QuitCommand):
+                break
         except NotLoggedInError:
             print_error("Not logged in")
         except HTTPError as e:
-            print_error(e.response.json()["message"])
-        except Exception as e:
-            print_error(e.args)
+            try:
+                msg = e.response.json()["message"]
+            except:
+                msg = str(e)
+            print_error(msg)
+        except BaseException as e:
+            print_error(str(e))
+        except:
+            print("An unhandled exception occurred")
 
 
 if __name__ == "__main__":
