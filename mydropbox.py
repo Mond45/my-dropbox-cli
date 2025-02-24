@@ -159,7 +159,6 @@ def execute_command(cmd: Command):
         r = requests.post(
             f"{API_BASE_URL}/logout", headers={"x-session-token": session_token}
         )
-        r.raise_for_status()
         session_token = None
 
     elif isinstance(cmd, PutCommand):
